@@ -71,7 +71,6 @@ if uploaded_media:
                 audio_path = TEMP / "extracted_bgm.mp3"
                 vid.audio.write_audiofile(str(audio_path), logger=None)
                 vid.close()
-                # 不手动删除原文件，交由Streamlit自动清理，避免权限报错
             st.success("✅ 音频提取成功！")
         except Exception as e:
             st.error(f"❌ 音频提取失败：{str(e)}")
@@ -206,8 +205,8 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
                 # 转换为RGB（MoviePy要求）
                 cartoon_frame = cv2.cvtColor(cartoon_frame, cv2.COLOR_BGR2RGB)
 
-                # 创建视频片段
-                clip = ImageClip(cartoon_frame).with_duration(seg["dur"]).with_start(seg["t"])
+                # 【核心修复】使用旧版兼容方法 set_duration / set_start
+                clip = ImageClip(cartoon_frame).set_duration(seg["dur"]).set_start(seg["t"])
                 # 添加运镜
                 clip = clip.fl(camera_animate)
                 # 添加淡入淡出
@@ -216,7 +215,7 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
                 scene_clips.append(clip)
 
             # 合并所有背景片段
-            background = CompositeVideoClip(scene_clips).with_duration(VIDEO_DURATION)
+            background = CompositeVideoClip(scene_clips).set_duration(VIDEO_DURATION)
 
             # ==============================================
             # 步骤2：生成电影感字幕（系统自带字体，无报错）
@@ -233,8 +232,8 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
                     stroke_width=1.3,
                     method="label"
                 )
-                # 字幕位置：居中偏下，电影感排版
-                txt = txt.with_start(seg["t"]).with_duration(seg["dur"]).with_position(("center", 0.85))
+                # 【核心修复】使用旧版兼容方法 set_duration / set_start
+                txt = txt.set_start(seg["t"]).set_duration(seg["dur"]).set_position(("center", 0.85))
                 # 字幕淡入淡出
                 txt = fadein(txt, 1.2)
                 txt = fadeout(txt, 1.2)
@@ -255,7 +254,7 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
             # ==============================================
             # 步骤4：最终合成视频
             # ==============================================
-            final_video = CompositeVideoClip([background] + text_clips).with_audio(bgm)
+            final_video = CompositeVideoClip([background] + text_clips).set_audio(bgm)
             
             # 导出视频
             final_video.write_videofile(
