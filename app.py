@@ -1,7 +1,6 @@
 import streamlit as st
 import cv2
 import numpy as np
-import os
 import random
 from moviepy.editor import (
     ImageClip, CompositeVideoClip, TextClip,
@@ -15,8 +14,8 @@ from pathlib import Path
 # 页面配置
 # ------------------------------------------------
 st.set_page_config(page_title="电影感生日视频", layout="wide")
-st.title("🎂 耿耿 · 电影感闺蜜生日祝福")
-st.caption("自动漫画风 | 运镜 | 电影字幕 | 可下载")
+st.title("🎂 耿耿 · 电影感闺蜜生日视频（2分30秒）")
+st.caption("自动漫画风 | 电影字幕 | 可下载")
 
 # ------------------------------------------------
 # 临时目录
@@ -54,6 +53,7 @@ if uploaded_media:
     with open(temp_file, "wb") as fw:
         fw.write(uploaded_media.read())
 
+    # 如果是MP4，自动提取音频
     if temp_file.suffix.lower() == ".mp4":
         vid = VideoFileClip(str(temp_file))
         audio_path = TEMP / "bgm.mp3"
@@ -74,18 +74,18 @@ OUT_VIDEO = TEMP / "movie_video.mp4"
 # 电影感文案
 # ------------------------------------------------
 script = [
-    {"t": 0, "dur": 6, "text": "2017年秋天，我们在渭南师范遇见"},
+    {"t": 0, "dur": 6, "text": "2017年秋天，我们在遇见"},
     {"t": 6, "dur": 6, "text": "四年时光，三餐与四季，朝夕相伴"},
     {"t": 12, "dur": 6, "text": "一起上课，一起熬夜，一起成长"},
     {"t": 18, "dur": 6, "text": "后来我们各自出发，奔赴不同的远方"},
     {"t": 24, "dur": 6, "text": "有人读研，有人工作，有人继续追梦"},
-    {"t": 30, "dur": 6, "text": "研究生的路很难，但你一直很勇敢"},
+    {"t": 30, "dur": 6, "text": "路很难，但你一直很勇敢"},
     {"t": 36, "dur": 6, "text": "认真生活，认真发光，认真被爱"},
-    {"t": 42, "dur": 6, "text": "西安、广西，距离很远，心却很近"},
+    {"t": 42, "dur": 6, "text": "距离很远，心却很近"},
     {"t": 48, "dur": 7, "text": "我们约好，要一起看海、看日出、看世界"},
     {"t": 55, "dur": 7, "text": "一起疯，一起闹，一起变成更好的人"},
     {"t": 62, "dur": 7, "text": "愿你永远明亮，永远自由，永远被爱包围"},
-    {"t": 69, "dur": 7, "text": "愿你研途顺利，万事胜意，平安喜乐"},
+    {"t": 69, "dur": 7, "text": "愿你顺利，万事胜意，平安喜乐"},
     {"t": 76, "dur": 7, "text": "去更远的地方，见更亮的光"},
     {"t": 83, "dur": 9, "text": "耿耿，生日快乐。"},
     {"t": 92, "dur": 9, "text": "我们所有人，都在为你祝福。"},
@@ -93,17 +93,14 @@ script = [
 ]
 
 # ------------------------------------------------
-# 图片 → 漫画温柔风
+# 核心修复：图片漫画化（去除去水印逻辑，防止报错）
 # ------------------------------------------------
 def make_cartoon(img_path):
     img = cv2.imread(img_path)
+    
+    # 强制缩放至标准分辨率，防止尺寸过小报错
     img = cv2.resize(img, (W, H))
-
-    # 去水印（角落模糊）
-    h, w = img.shape[:2]
-    img[h-150:, w-250:] = cv2.GaussianBlur(img[h-150:, w-250:], (30,30), 40)
-    img[h-150:, :250] = cv2.GaussianBlur(img[h-150:, :250], (30,30), 40)
-
+    
     # 漫画效果
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.medianBlur(gray, 5)
@@ -116,7 +113,7 @@ def make_cartoon(img_path):
     return cartoon
 
 # ------------------------------------------------
-# 电影运镜：缓慢推近 + 微动
+# 电影运镜
 # ------------------------------------------------
 def camera_move(clip, t):
     zoom = 1.0 + 0.03 * np.sin(t / 20)
@@ -124,7 +121,7 @@ def camera_move(clip, t):
     return resize(clip, zoom).set_position(("center", y_off))
 
 # ------------------------------------------------
-# 音频循环（不报错版本）
+# 音频循环
 # ------------------------------------------------
 def loop_music(audio_clip, target_duration):
     dur = audio_clip.duration
@@ -167,10 +164,11 @@ if st.button("✨ 开始生成"):
         bg = CompositeVideoClip(scenes).with_duration(VIDEO_DURATION)
 
         # ------------------------------
-        # 电影字幕（自带字体，不报错）
+        # 电影字幕（自带字体）
         # ------------------------------
         text_clips = []
         for seg in script:
+            # 使用系统自带的 Arial 或 Helvetica，不会报错
             txt = TextClip(
                 seg["text"],
                 font="Arial",
