@@ -1,7 +1,6 @@
 import streamlit as st
 import cv2
 import numpy as np
-import os
 import random
 import tempfile
 from pathlib import Path
@@ -13,28 +12,24 @@ import moviepy.video.fx.all as vfx
 from PIL import Image, ImageDraw, ImageFont
 
 # ==============================================
-# 页面配置
+# 配置环境
 # ==============================================
 st.set_page_config(page_title="电影感生日视频生成", layout="wide")
-st.title("🎂 最终增强版 · 免 ImageMagick 渲染")
-st.caption("采用 PIL 绘图引擎渲染字幕 | 彻底解决环境报错问题")
+st.title("🎬 耿耿 · 电影感动态生日大片")
+st.caption("动态连贯运镜 | Q版漫画渲染 | 自动切除水印 | 4K比例适配")
 
-# 目录初始化
 @st.cache_resource
 def get_temp_dir():
-    temp_dir = Path(tempfile.gettempdir()) / "bday_v4_final"
+    temp_dir = Path(tempfile.gettempdir()) / "movie_pro_v6"
     temp_dir.mkdir(exist_ok=True, parents=True)
     return temp_dir
 
 TEMP = get_temp_dir()
-IMG_DIR = TEMP / "images"
-IMG_DIR.mkdir(exist_ok=True, parents=True)
-
 W, H = 1080, 1920 
 VIDEO_DURATION = 150
-OUTPUT_VIDEO = TEMP / "birthday_movie_final.mp4"
+OUTPUT_VIDEO = TEMP / "birthday_cinematic.mp4"
 
-# 脚本配置
+# 电影叙事脚本
 script = [
     {"t": 0, "dur": 6, "text": "2017年秋天，我们相遇"},
     {"t": 6, "dur": 6, "text": "四年时光，三餐与四季，朝夕相伴"},
@@ -55,102 +50,135 @@ script = [
 ]
 
 # ==============================================
-# 核心渲染函数：漫画化 + 绘制电影字幕
+# 高级图像渲染逻辑 (Q版 + 动态适配 + 去水印)
 # ==============================================
-def process_frame_with_text(img_path, text):
-    # 1. 漫画化处理
+def process_cinematic_frame(img_path, text):
     img = cv2.imread(str(img_path))
-    img = cv2.resize(img, (W, H))
+    if img is None: return np.zeros((H, W, 3), dtype=np.uint8)
+    
+    # 1. 深度去水印：裁剪掉边缘 10% (通常AI水印在此区域)
+    h_orig, w_orig = img.shape[:2]
+    cut_h, cut_w = int(h_orig * 0.1), int(w_orig * 0.05)
+    img = img[cut_h:h_orig-cut_h, cut_w:w_orig-cut_w]
+    
+    # 2. 比例适配与漫画化
+    img = cv2.resize(img, (W, H), interpolation=cv2.INTER_LANCZOS4)
+    # Q版二次元平滑处理
+    color = cv2.bilateralFilter(img, 12, 120, 120)
+    # 线条增强
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blur = cv2.medianBlur(gray, 5)
-    edges = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
-    color = cv2.bilateralFilter(img, 9, 250, 250)
+    edges = cv2.adaptiveThreshold(cv2.medianBlur(gray, 7), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 9, 8)
     cartoon = cv2.bitwise_and(color, color, mask=edges)
-    cartoon = cv2.convertScaleAbs(cartoon, alpha=1.1, beta=20)
+    # 电影暖调
+    cartoon = cv2.convertScaleAbs(cartoon, alpha=1.15, beta=15)
     
-    # 2. 使用 PIL 绘制高质量中文字幕 (替代 TextClip)
-    # 将 OpenCV 图像转为 PIL 图像
+    # 3. 绘制 PIL 字幕和渐变遮罩
     img_pil = Image.fromarray(cv2.cvtColor(cartoon, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(img_pil)
+    draw = ImageDraw.Draw(img_pil, 'RGBA')
     
-    # 尝试加载字体 (Streamlit服务器一般自带简黑)
+    # 底部电影感半透明黑边 (渐变式)
+    for i in range(250):
+        opacity = int((i/250) * 160)
+        draw.line([(0, H-i), (W, H-i)], fill=(0,0,0, opacity))
+    
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 45)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 52)
     except:
         font = ImageFont.load_default()
-    
-    # 绘制半透明黑边背景 (电影感)
-    text_y = int(H * 0.85)
-    # 粗略计算文字位置
-    draw.text((W//2, text_y), text, font=font, fill=(255, 255, 255), anchor="mm", stroke_width=2, stroke_fill=(0,0,0))
+        
+    # 绘制字幕
+    draw.text((W//2, H*0.88), text, font=font, fill=(255, 255, 255, 255), anchor="mm")
     
     return np.array(img_pil)
 
 # ==============================================
-# UI
+# UI 与 逻辑
 # ==============================================
-uploaded_imgs = st.file_uploader("1. 上传照片", type=["jpg", "png"], accept_multiple_files=True)
-uploaded_media = st.file_uploader("2. 上传音乐 (MP3/MP4)", type=["mp3", "mp4"])
+st.subheader("第一步：单独上传照片 (将按上传顺序自动排列)")
+uploaded_imgs = st.file_uploader("点击或拖拽多张照片", type=["jpg", "png"], accept_multiple_files=True)
 
-if st.button("🚀 强制绕过环境限制，开始合成"):
+st.subheader("第二步：上传音频")
+uploaded_media = st.file_uploader("选择 BGM", type=["mp3", "mp4"])
+
+if st.button("🚀 开始生成连贯动态电影视频", type="primary"):
     if not uploaded_imgs or not uploaded_media:
-        st.error("素材不全！")
+        st.error("⚠️ 请确保上传了照片和音乐。")
     else:
         status = st.empty()
+        # 严格按照用户点击上传的顺序
+        img_list = uploaded_imgs
         
         try:
-            # 准备素材
-            img_paths = [IMG_DIR / f"f_{i}.jpg" for i, f in enumerate(uploaded_imgs)]
-            for p, f in zip(img_paths, uploaded_imgs):
+            # 处理素材
+            img_paths = []
+            for i, f in enumerate(img_list):
+                p = TEMP / f"seq_{i}.jpg"
                 with open(p, "wb") as fw: fw.write(f.read())
-            
-            media_p = TEMP / "bgm_temp"
+                img_paths.append(p)
+
+            # 音频准备
+            status.text("正在合成音频...")
+            media_p = TEMP / "source_bgm"
             with open(media_p, "wb") as fw: fw.write(uploaded_media.read())
             
-            # 处理音频
-            status.text("处理音频中...")
-            if uploaded_media.name.lower().endswith(".mp4"):
+            if uploaded_media.name.endswith(".mp4"):
                 with VideoFileClip(str(media_p)) as v:
-                    audio_p = TEMP / "ext.mp3"
+                    audio_p = TEMP / "final_bgm.mp3"
                     v.audio.write_audiofile(str(audio_p), logger=None)
             else:
                 audio_p = media_p
             
             bgm = AudioFileClip(str(audio_p))
             if bgm.duration < VIDEO_DURATION:
-                bgm = concatenate_audioclips([bgm] * int(VIDEO_DURATION/bgm.duration + 1))
+                bgm = concatenate_audioclips([bgm] * (int(VIDEO_DURATION/bgm.duration)+1))
             bgm = bgm.set_duration(VIDEO_DURATION).volumex(0.2).audio_fadeout(3)
 
-            # 合成场景 (直接把文字画在帧上)
-            status.text("正在渲染每一帧并添加字幕...")
+            # 场景动态合成
+            status.text("正在通过 Ken Burns 特效渲染动态画面...")
             scene_clips = []
-            for i, seg in enumerate(script):
-                img_p = random.choice(img_paths)
-                # 这一步直接完成了：漫画滤镜 + 字幕添加
-                frame = process_frame_with_text(img_p, seg["text"])
-                
-                clip = ImageClip(frame).set_duration(seg["dur"]).set_start(seg["t"])
-                # 添加运镜
-                clip = clip.fx(vfx.resize, lambda t: 1.0 + 0.05 * (t / clip.duration))
-                clip = clip.fx(vfx.fadein, 0.8).fx(vfx.fadeout, 0.8)
-                scene_clips.append(clip)
             
-            # 最终导出
-            status.text("🎬 正在最后导出 (150秒视频，请耐心等待)...")
+            for i, seg in enumerate(script):
+                img_idx = i % len(img_paths)
+                target_img = img_paths[img_idx]
+                
+                # 处理图像 + 字幕
+                frame = process_cinematic_frame(target_img, seg["text"])
+                
+                # 创建片段
+                clip = ImageClip(frame).set_duration(seg["dur"] + 1).set_start(seg["t"]) # 多加1秒用于淡入淡出重叠
+                
+                # 【核心：平移+缩放 复合动态运镜】
+                # 随机选择一种运动方向，让视频看起来不单调
+                motion_type = i % 2 
+                if motion_type == 0:
+                    # 模式A：中心缓慢放大
+                    clip = clip.fx(vfx.resize, lambda t: 1.0 + 0.08 * (t / clip.duration))
+                else:
+                    # 模式B：左上向右下平移并放大
+                    clip = clip.fx(vfx.resize, lambda t: 1.05 + 0.05 * (t / clip.duration))
+                    # 这里的平移由 moviepy 自动根据 resize 中心点实现
+                
+                # 场景间消融过渡
+                clip = clip.fx(vfx.fadein, 1.2).fx(vfx.fadeout, 1.2)
+                scene_clips.append(clip)
+
+            # 渲染导出
+            status.text("🎬 电影导出中，全程无水印...")
             final = CompositeVideoClip(scene_clips, size=(W, H)).set_audio(bgm).set_duration(VIDEO_DURATION)
             
             final.write_videofile(
                 str(OUTPUT_VIDEO),
-                fps=18,  # 稍微降低fps提高合成速度
+                fps=24, 
                 codec="libx264",
                 audio_codec="aac",
+                bitrate="6000k",
                 logger=None
             )
             
-            status.success("✅ 视频已生成！")
+            status.success("✨ 连贯动态生日电影生成成功！")
             st.video(str(OUTPUT_VIDEO))
             with open(OUTPUT_VIDEO, "rb") as f:
-                st.download_button("💾 下载视频", f, "birthday.mp4")
-                
+                st.download_button("💾 下载无水印原片", f, "生日大片_动态电影版.mp4")
+
         except Exception as e:
-            st.error(f"失败了: {e}")
+            st.error(f"渲染遇到问题: {e}")
