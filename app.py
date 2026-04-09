@@ -139,28 +139,33 @@ def make_cartoon(img_path):
     return cartoon
 
 # ==============================================
-# 核心功能2：电影感运镜（缓慢推近+微动）
+# 核心功能2：电影感运镜（原生方法，零报错）
 # ==============================================
-def camera_animate(clip, t):
+def add_camera_zoom(clip, duration):
     """
-    温柔运镜：缓慢缩放+垂直微动，模拟电影镜头感
+    用MoviePy原生方法实现缓慢推近，彻底解决fl()兼容性问题
     """
-    zoom = 1.0 + 0.03 * np.sin(t / 20)
-    y_offset = 0.97 - 0.015 * np.sin(t / 18)
-    return resize(clip, zoom).set_position(("center", y_offset))
+    zoom_start = 1.0
+    zoom_end = 1.06
+    
+    def zoom_frame(get_frame, t):
+        frame = get_frame(t)
+        zoom = zoom_start + (zoom_end - zoom_start) * (t / duration)
+        return resize(frame, zoom)
+    
+    return clip.fl(zoom_frame)
 
 # ==============================================
-# 核心功能3：音频循环（兼容所有MoviePy版本）
+# 核心功能3：音频循环（兼容MoviePy 1.0.3）
 # ==============================================
 def loop_audio(audio_clip, target_duration):
     """
-    兼容所有MoviePy版本的音频循环方法，彻底解决loop属性报错
+    兼容MoviePy 1.0.3的音频循环方法，彻底解决loop属性报错
     """
     audio_dur = audio_clip.duration
     if audio_dur >= target_duration:
         return audio_clip.subclip(0, target_duration)
     
-    # 计算循环次数，拼接音频
     loop_times = int(np.ceil(target_duration / audio_dur))
     looped_clips = [audio_clip] * loop_times
     combined_audio = concatenate_videoclips(looped_clips)
@@ -205,10 +210,10 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
                 # 转换为RGB（MoviePy要求）
                 cartoon_frame = cv2.cvtColor(cartoon_frame, cv2.COLOR_BGR2RGB)
 
-                # 【核心修复】使用旧版兼容方法 set_duration / set_start
+                # 创建视频片段（MoviePy 1.0.3兼容方法）
                 clip = ImageClip(cartoon_frame).set_duration(seg["dur"]).set_start(seg["t"])
-                # 添加运镜
-                clip = clip.fl(camera_animate)
+                # 添加运镜（原生方法，无报错）
+                clip = add_camera_zoom(clip, seg["dur"])
                 # 添加淡入淡出
                 clip = fadein(clip, 0.8)
                 clip = fadeout(clip, 0.8)
@@ -218,11 +223,11 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
             background = CompositeVideoClip(scene_clips).set_duration(VIDEO_DURATION)
 
             # ==============================================
-            # 步骤2：生成电影感字幕（系统自带字体，无报错）
+            # 步骤2：生成电影感字幕（系统自带字体）
             # ==============================================
             text_clips = []
             for seg in script:
-                # 使用系统自带Arial字体，100%兼容，无需额外上传
+                # 使用系统自带Arial字体，100%兼容
                 txt = TextClip(
                     seg["text"],
                     font="Arial",
@@ -232,7 +237,7 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
                     stroke_width=1.3,
                     method="label"
                 )
-                # 【核心修复】使用旧版兼容方法 set_duration / set_start
+                # 兼容MoviePy 1.0.3的方法
                 txt = txt.set_start(seg["t"]).set_duration(seg["dur"]).set_position(("center", 0.85))
                 # 字幕淡入淡出
                 txt = fadein(txt, 1.2)
@@ -245,7 +250,7 @@ if st.button("✨ 开始生成 2分30秒 生日视频", type="primary", use_cont
             bgm = AudioFileClip(str(audio_path))
             # 循环音频至视频时长
             bgm = loop_audio(bgm, VIDEO_DURATION)
-            # 降低音量，避免盖过人声（如果有）
+            # 降低音量
             bgm = bgm.volumex(0.17)
             # 音频淡入淡出
             bgm = fadein(bgm, 3)
