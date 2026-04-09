@@ -1,0 +1,5 @@
+birthday_video_generator/
+├── streamlit_app.py       # 主程序（网页版）
+├── requirements.txt       # 依赖
+├── README.md              # 说明
+└── (运行时自动生成临时文件夹)
