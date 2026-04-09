@@ -1,0 +1,8 @@
+streamlit
+moviepy
+opencv-python
+pillow
+numpy
+tkinter
+python-dotenv
+imageio-ffmpeg
