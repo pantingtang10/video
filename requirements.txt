@@ -1,7 +1,6 @@
 streamlit
 opencv-python-headless
-moviepy
+moviepy==1.0.3
+numpy<2.0.0
 pillow
-numpy
-python-dotenv
 imageio-ffmpeg
