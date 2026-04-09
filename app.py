@@ -4,37 +4,37 @@ import numpy as np
 import os
 import random
 from moviepy.editor import (
-    ImageClip, CompositeVideoClip, TextClip, AudioFileClip
+    ImageClip, CompositeVideoClip, TextClip, AudioFileClip, VideoFileClip
 )
-# 注意：v1.0.3 常用这种导入方式
 from moviepy.video.fx.all import fadein, fadeout, resize
 import tempfile
 from pathlib import Path
 
 # =================== 页面配置 ===================
 st.set_page_config(page_title="耿耿生日祝福视频生成", layout="wide")
-st.title("🎂 Q版漫画生日祝福视频生成器")
+st.title("🎂 全自动漫画版生日视频生成器")
+st.info("支持上传 MP4/MP3 音乐，所有图片将自动转换为 Q 版漫画风格。")
 
-# =================== 临时文件夹 ===================
-# 建议使用 streamlit 自己的 session_state 或固定临时路径
-TEMP = Path(tempfile.gettempdir()) / "birthday_app"
+# =================== 路径初始化 ===================
+TEMP = Path(tempfile.gettempdir()) / "birthday_v2"
 TEMP.mkdir(exist_ok=True)
-IMAGE_FOLDER = TEMP / "images"
-IMAGE_FOLDER.mkdir(exist_ok=True)
 
-# =================== 上传文件 ===================
-st.subheader("1️⃣ 上传资源")
+# =================== 1️⃣ 资源上传 ===================
+st.subheader("1️⃣ 上传素材")
 col1, col2 = st.columns(2)
+
 with col1:
-    uploaded_imgs = st.file_uploader("上传照片 (JPG/PNG)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+    uploaded_imgs = st.file_uploader("上传照片 (多张)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+
 with col2:
-    uploaded_audio = st.file_uploader("上传背景音乐 (MP3)", type=["mp3","wav"])
+    # 增加了 mp4 支持
+    uploaded_audio_file = st.file_uploader("上传背景音乐或视频", type=["mp3","wav","mp4","m4a"])
 
 # =================== 视频参数 ===================
-VIDEO_DURATION = 140 # 脚本总长约 128s+12s
-W, H = 720, 1280 # 建议 720p 提高云端生成速度
+W, H = 720, 1280  # 竖屏 720P，兼顾画质与生成速度
+VIDEO_DURATION = 140 # 脚本总长约 140 秒
 
-# 脚本内容保持不变...
+# 剧情脚本保持不变
 script = [
     {"time": 0, "dur": 6, "text": "2017年9月｜渭南师范学院\n我们第一次相遇"},
     {"time": 6, "dur": 6, "text": "四年同窗，三餐四季，朝夕相伴"},
@@ -56,77 +56,102 @@ script = [
     {"time": 128, "dur": 12, "text": "生日快乐 ✨ 前程似锦 ✨ 未来可期"},
 ]
 
-def process_image(img_path):
-    img = cv2.imread(img_path)
+# =================== 2️⃣ 漫画化处理函数 ===================
+def cartoonize_image(img_stream):
+    # 读取图片
+    file_bytes = np.asarray(bytearray(img_stream.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
     img = cv2.resize(img, (W, H))
-    
-    # 卡通化处理...
+
+    # 1. 边缘检测
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.medianBlur(gray, 5)
     edges = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
+
+    # 2. 双边滤波（平滑颜色，保留边缘）
     color = cv2.bilateralFilter(img, 9, 250, 250)
+
+    # 3. 合并
     cartoon = cv2.bitwise_and(color, color, mask=edges)
     
-    # 关键点：OpenCV 是 BGR，MoviePy 需要 RGB
-    cartoon_rgb = cv2.cvtColor(cartoon, cv2.COLOR_BGR2RGB)
-    return cartoon_rgb
+    # 4. 增强色彩饱和度
+    cartoon = cv2.convertScaleAbs(cartoon, alpha=1.2, beta=15)
+    
+    # 5. 转换 BGR 为 RGB (MoviePy 需要 RGB)
+    return cv2.cvtColor(cartoon, cv2.COLOR_BGR2RGB)
 
-# 生成按钮逻辑
-if st.button("✨ 开始生成视频"):
-    if not uploaded_imgs or not uploaded_audio:
-        st.error("请先上传照片和音乐！")
+# =================== 3️⃣ 生成逻辑 ===================
+if st.button("✨ 一键生成全漫画生日视频"):
+    if not uploaded_imgs:
+        st.error("请至少上传一张照片！")
+    elif not uploaded_audio_file:
+        st.error("请上传背景音乐（MP3）或包含音频的视频（MP4）！")
     else:
-        with st.spinner("正在努力渲染视频，约需 1-2 分钟..."):
-            try:
-                # 处理图片路径
-                img_paths = []
-                for f in uploaded_imgs:
-                    p = IMAGE_FOLDER / f.name
-                    with open(p, "wb") as fw: fw.write(f.read())
-                    img_paths.append(str(p))
+        try:
+            with st.spinner("第一步：正在将所有照片转换为漫画风格..."):
+                cartoon_images = []
+                for img_file in uploaded_imgs:
+                    # 重新读取流，防止多次操作报错
+                    img_file.seek(0)
+                    cartoon_images.append(cartoonize_image(img_file))
+                st.toast(f"成功转换 {len(cartoon_images)} 张图片！")
 
-                audio_p = TEMP / "bgm.mp3"
-                with open(audio_p, "wb") as fw: fw.write(uploaded_audio.read())
+            with st.spinner("第二步：正在渲染 5 分钟祝福视频..."):
+                # 处理音频
+                audio_ext = uploaded_audio_file.name.split('.')[-1].lower()
+                audio_tmp_path = str(TEMP / f"temp_audio.{audio_ext}")
+                with open(audio_tmp_path, "wb") as f:
+                    f.write(uploaded_audio_file.read())
 
+                if audio_ext == "mp4":
+                    audio_clip = VideoFileClip(audio_tmp_path).audio
+                else:
+                    audio_clip = AudioFileClip(audio_tmp_path)
+                
+                # 循环音频直到覆盖视频长度
+                audio_clip = audio_clip.loop(duration=VIDEO_DURATION).volumex(0.3)
+
+                # 生成场景片段
                 scene_clips = []
                 for i, seg in enumerate(script):
-                    pick = random.choice(img_paths)
-                    img_array = process_image(pick)
+                    # 循环选取处理好的漫画图片
+                    img_array = cartoon_images[i % len(cartoon_images)]
                     
-                    # 使用 1.0.3 语法：set_duration, set_start
                     clip = ImageClip(img_array).set_duration(seg["dur"]).set_start(seg["time"])
+                    
+                    # 简单的缩放运镜效果
                     clip = clip.set_position(('center', 'center'))
                     clip = fadein(clip, 1).fadeout(1)
                     scene_clips.append(clip)
 
-                video = CompositeVideoClip(scene_clips, size=(W, H))
-
-                # 字幕处理 (注意：Linux 环境 SimHei 可能会失效，建议上传一个 ttf 字体文件到 GitHub)
+                # 生成文字片段
                 text_clips = []
                 for seg in script:
                     txt = TextClip(
                         seg["text"],
-                        fontsize=45,
+                        fontsize=40,
                         color='white',
-                        font='DejaVu-Sans-Bold', # 使用 Linux 通用字体防止报错
+                        font='DejaVu-Sans-Bold', # Linux 环境默认字体
                         stroke_color='black',
-                        stroke_width=1
-                    ).set_start(seg["time"]).set_duration(seg["dur"]).set_position(('center', 0.8))
+                        stroke_width=1,
+                        method='caption',
+                        size=(W*0.8, None)
+                    ).set_start(seg["time"]).set_duration(seg["dur"]).set_position(('center', 0.75))
                     text_clips.append(txt)
 
-                final_video = CompositeVideoClip([video] + text_clips)
-                
-                audio = AudioFileClip(str(audio_p)).set_duration(final_video.duration)
-                final_video = final_video.set_audio(audio)
+                # 合成最终视频
+                final_video = CompositeVideoClip(scene_clips + text_clips, size=(W, H))
+                final_video = final_video.set_audio(audio_clip)
+                final_video = final_video.set_duration(VIDEO_DURATION)
 
-                out_path = str(TEMP / "output.mp4")
-                # 使用 libx264 编码以确保浏览器兼容
+                out_path = str(TEMP / "birthday_cartoon_final.mp4")
                 final_video.write_videofile(out_path, fps=24, codec="libx264", audio_codec="aac")
 
-                st.success("视频生成成功！")
+                st.success("🎉 视频生成完成！")
                 with open(out_path, "rb") as f:
-                    st.download_button("📥 下载祝福视频", f, "birthday_video.mp4")
+                    st.download_button("📥 下载我的漫画版生日视频", f, "birthday_video.mp4")
                 st.video(out_path)
 
-            except Exception as e:
-                st.error(f"生成失败: {e}")
+        except Exception as e:
+            st.error(f"发生错误: {str(e)}")
+            st.info("提示：如果是字体报错，请在仓库上传 simhei.ttf 并修改代码中的 font 参数。")
